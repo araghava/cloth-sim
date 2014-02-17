@@ -1,43 +1,52 @@
-var GRAVITY = -5;
-var DELTA_TIME = 0.2;
-var CONSTRAINT_ITERATIONS = 5;
-var REST_LENGTH = 14;
+// Gravity of the world.
+var GRAVITY = -2;
 
-var offset_x = 50;
-var offset_y = 200;
+// Time step to use for verlet integration.
+var DELTA_TIME = 0.5;
 
-var getCanvasClickLoc = function (e, el) {
-    var x;
-    var y;
-    if (e.pageX || e.pageY) { 
-      x = e.pageX;
-      y = e.pageY;
-    }
-    else { 
-      x = e.clientX + document.body.scrollLeft + document.documentElement.scrollLeft; 
-      y = e.clientY + document.body.scrollTop + document.documentElement.scrollTop; 
-    } 
-    x -= el.offsetLeft;
-    y -= el.offsetTop;
+// How many times to solve the constraints before rendering.
+var CONSTRAINT_ITERATIONS = 6;
 
-    y = el.offsetHeight - y;
-    return {x: x, y: y};
+// Length between two points such that no attraction or repulsive 'forces' are applied.
+var REST_LENGTH = 18;
+
+// Location to place the cloth in the canvas.
+var offset_x = 80;
+var offset_y = 140;
+
+// Whether to tear the cloth while clicking and dragging.
+var tearCloth = false;
+
+// Whether to anchor the currently active particle.
+var anchorCloth = false;
+
+window.onkeydown = function (evt) {
+    if (evt.keyCode === 84) tearCloth = true;
+    if (evt.keyCode === 65) anchorCloth = true;
 };
 
+/**
+ * The world that houses the canvas and cloth.
+ */
 function World (canvasEl) {
-    var ctx = canvasEl.getContext('2d');
-    ctx.lineWidth = 0.2;
+    this.canvas = canvasEl.getContext('2d');
 
-    this.el = canvasEl;
-    this.ctx = ctx;
-    this.width = ctx.canvas.width;
-    this.height = ctx.canvas.height;
-    this.ctx.translate(0, this.ctx.canvas.height);
-    this.ctx.scale(1, -1);
+    // Set line constraint width to 0.2.
+    this.canvas.lineWidth = 0.2;
 
-    this.cloth = new Cloth([offset_x, offset_y], 35, 15, canvasEl);
+    this.width = canvasEl.width;
+    this.height = canvasEl.height;
+
+    // Flip the canvas such that (0,0) is at the bottom left.
+    this.canvas.translate(0, this.canvas.canvas.height);
+    this.canvas.scale(1, -1);
+
+    this.cloth = new Cloth([offset_x, offset_y], 25, 16, canvasEl);
 }
 
+/**
+ * Begins the render loop.
+ */
 World.prototype.start = function () {
     var frame = window.requestAnimationFrame || window.webkitRequestAnimationFrame ||
         window.mozRequestAnimationFrame;
@@ -48,19 +57,33 @@ World.prototype.start = function () {
     frameWrapper();
 };
 
+/**
+ * Render loop. Applies verlet integration, solves constraints, and finally draws the result.
+ */
 World.prototype.render = function () {
-    this.ctx.clearRect(0, 0, this.width, this.height);
+    // Clear the canvas area.
+    this.canvas.clearRect(0, 0, this.width, this.height);
+
+    // Apply verlet integration.
     this.cloth.applyVerlet();
+
+    // Relaxes constraints before drawing.
     this.cloth.solveConstraints();
-    this.cloth.draw(this.ctx);
+
+    // Draw the cloth.
+    this.cloth.draw(this.canvas);
 };
 
+/**
+ * The cloth object. Houses point masses and their constraints.
+ */
 function Cloth (pos, x, y, canvasEl) {
     this.el = canvasEl;
     this.particles = [];
     this.constraints = [];
     this.anchors = [];
 
+    // Create and add new particles to the cloth in a grid.
     for (var i = 0; i < x; i++) {
         var arr = [];
         for (var j = 0; j < y; j++) {
@@ -75,6 +98,8 @@ function Cloth (pos, x, y, canvasEl) {
     this.length = y;
     this.width = x;
 
+    // The following few ugly for loops are to create the constraints.
+    // A similar code structure is seen in the draw() method in order to draw these constraints.
     for (var i = 0; i < x-1; i++) {
         this.constraints.push({
             pA: this.particles[i+1][y - 1],
@@ -104,27 +129,62 @@ function Cloth (pos, x, y, canvasEl) {
         });
     }
 
+    // Set up physics by applying gravity to each point mass.
     this.setupPhysics();
 
-    this.el.onclick = function (evt) {
-        var pos = getCanvasClickLoc(evt, this.el);
-        var closest = this.particles[0][0];
-        var closestDist = 10000;
-        this.particles.forEach(function(pArr) {
-            pArr.forEach(function(p) {
-                var dist = Math.sqrt((p.x-pos.x)*(p.x-pos.x) + (p.y-pos.y)*(p.y-pos.y));
-                if (dist < closestDist) {
-                    closest = p;
-                    closestDist = dist;
-                }
+    // Currently held down particle (active).
+    this.activeParticle = null;
+
+    this.el.onmousedown = function (evt) {
+        anchorCloth = false;
+
+        if (!tearCloth) {
+            var pos = getCanvasClickLoc(evt, this.el);
+            var closest = this.particles[0][0];
+            var closestDist = 10000;
+            this.particles.forEach(function(pArr) {
+                pArr.forEach(function(p) {
+                    var dist = approxDist(p.x-pos.x, p.y-pos.y);
+                    if (dist < closestDist) {
+                        closest = p;
+                        closestDist = dist;
+                    }
+                });
             });
-        });
-        closest.anchorx = pos.x;
-        closest.anchory = pos.y;
-        this.anchors.push(closest);
+            this.activeParticle = closest;
+        }   
+    }.bind(this);
+
+    this.el.onmousemove = function(evt) {
+        if (this.activeParticle) {
+            var pos = getCanvasClickLoc(evt, this.el);
+
+            this.activeParticle.anchorx = pos.x;
+            this.activeParticle.anchory = pos.y;
+
+            if (!this.activeParticle.anchored) {
+                this.anchors.push(this.activeParticle);
+                this.activeParticle.anchored = true;
+            }
+        }
+    }.bind(this);
+
+    this.el.onmouseup = function(evt) {
+        if (this.activeParticle && !anchorCloth) {
+            var ind = this.anchors.indexOf(this.activeParticle);
+            if (ind > -1) this.anchors.splice(ind, 1);
+        }   
+        this.activeParticle = null;
+
+        anchorCloth = false;
+        tearCloth = false;
     }.bind(this);
 }
 
+/**
+ * Sets up physics by applying gravity to each point mass.
+ * Also declares which particles are initialized as anchors.
+ */
 Cloth.prototype.setupPhysics = function () {
     for (var i = 0; i < this.width; i++) {
         for (var j = 0; j < this.length; j++) {
@@ -132,10 +192,17 @@ Cloth.prototype.setupPhysics = function () {
         }
     }
 
+    // Anchored particles (not affected by gravity or anything else).
+    this.particles[0][this.length-1].anchored = true;
+    this.particles[this.width-1][this.length-1].anchored = true;
+    this.anchors.push(this.particles[(this.width-1)/2][this.length-1]);
     this.anchors.push(this.particles[0][this.length-1]);
     this.anchors.push(this.particles[this.width-1][this.length-1]);
 };
 
+/**
+ * Verlet integration (velocity-less equations of motion).
+ */
 Cloth.prototype.applyVerlet = function () {
     for (var i = 0; i < this.width; i++) {
         for (var j = 0; j < this.length; j++) {
@@ -153,7 +220,13 @@ Cloth.prototype.applyVerlet = function () {
     }
 };
 
+/**
+ * Solves constraints before rendering (brings two points closer or futher apart based 
+ * on their resting distance.
+ */
 Cloth.prototype.solveConstraints = function () {
+
+    // We solve the constraint multiple times before rendering to avoid 'jitteryness'.
     for (var j = 0; j < CONSTRAINT_ITERATIONS; j++) {
         for (var x = 0; x < this.constraints.length; x++) {
             var x1 = this.constraints[x].pA.x;
@@ -164,8 +237,7 @@ Cloth.prototype.solveConstraints = function () {
             var dx = x2 - x1;
             var dy = y2 - y1;
 
-            var d = dx*dx + dy*dy;
-            var dlen = Math.sqrt(d);
+            var dlen = approxDist(dx, dy);
             var diff = (dlen - this.constraints[x].restLength)/dlen;
 
             this.constraints[x].pA.x += dx*0.5*diff;
@@ -174,6 +246,7 @@ Cloth.prototype.solveConstraints = function () {
             this.constraints[x].pB.y -= dy*0.5*diff;
         }
 
+        // Reset each anchor point to its appropriate position.
         this.anchors.forEach(function(p) {
             p.x = p.anchorx;
             p.y = p.anchory;
@@ -181,6 +254,9 @@ Cloth.prototype.solveConstraints = function () {
     }
 };
 
+/**
+ * Draw the cloth (point masses and constraints).
+ */
 Cloth.prototype.draw = function (canvas) {
     for (var i = 0; i < this.width; i++) {
         for (var j = 0; j < this.length; j++) {
@@ -217,6 +293,10 @@ Cloth.prototype.draw = function (canvas) {
     }
 };
 
+/**
+ * Represents a particle (point mass). The size is only for display purposes, in reality,
+ * point masses are effectively dimensionless.
+ */
 function Particle (pos, size) {
     this.ax = 0;
     this.ay = 0;
@@ -232,3 +312,49 @@ function Particle (pos, size) {
     this.old_y = this.y;
 };
 
+/**
+ * Gets the click location within the modified canvas (as 0,0 is at the bottom left).
+ */
+var getCanvasClickLoc = function (e, el) {
+    var x;
+    var y;
+    if (e.pageX || e.pageY) { 
+      x = e.pageX;
+      y = e.pageY;
+    }
+    else { 
+      x = e.clientX + document.body.scrollLeft + document.documentElement.scrollLeft; 
+      y = e.clientY + document.body.scrollTop + document.documentElement.scrollTop; 
+    } 
+    x -= el.offsetLeft;
+    y -= el.offsetTop;
+
+    y = el.offsetHeight - y;
+    return {x: x, y: y};
+};
+
+/**
+ * Uses a numerical approximation to get the distance between two points (avoids Math.sqrt).
+ */
+var approxDist = function(dx, dy) {
+    var min, max;
+
+    if (dx < 0) dx = -dx;
+    if (dy < 0) dy = -dy;
+
+    if (dx < dy) {
+        min = dx;
+        max = dy;
+    } else {
+        min = dy;
+        max = dx;
+    }
+
+    return (1007/1024)*max + (441/1024)*min;    
+};
+
+window.onload = function () {
+    var canvas = document.getElementById('cn');
+    var world = new World(canvas);
+    world.start();
+};
