@@ -17,12 +17,19 @@ var offset_y = 140;
 // Whether to tear the cloth while clicking and dragging.
 var tearCloth = false;
 
+// Whether the user is clicking and dragging.
+var isDragging = false;
+
 // Whether to anchor the currently active particle.
 var anchorCloth = false;
 
 window.onkeydown = function (evt) {
     if (evt.keyCode === 84) tearCloth = true;
     if (evt.keyCode === 65) anchorCloth = true;
+};
+
+window.onkeyup = function(evt) {
+    if (evt.keyCode === 84) tearCloth = false;
 };
 
 /**
@@ -89,7 +96,7 @@ function Cloth (pos, x, y, canvasEl) {
         for (var j = 0; j < y; j++) {
             var par = new Particle([
                 pos[0] + i*REST_LENGTH,
-                pos[1] + j*REST_LENGTH], 1.5);
+                pos[1] + j*REST_LENGTH], 2);
             arr.push(par);
         }
         this.particles.push(arr);
@@ -97,6 +104,9 @@ function Cloth (pos, x, y, canvasEl) {
 
     this.length = y;
     this.width = x;
+
+    // Currently held down particle (active).
+    this.activeParticle = null;
 
     // The following few ugly for loops are to create the constraints.
     // A similar code structure is seen in the draw() method in order to draw these constraints.
@@ -129,21 +139,29 @@ function Cloth (pos, x, y, canvasEl) {
         });
     }
 
+    this.setupEvents();
+
     // Set up physics by applying gravity to each point mass.
     this.setupPhysics();
+}
 
-    // Currently held down particle (active).
-    this.activeParticle = null;
-
+/**
+ * Sets up event callbacks for user interactions with the cloth.
+ */
+Cloth.prototype.setupEvents = function () {
     this.el.onmousedown = function (evt) {
         anchorCloth = false;
+        isDragging = true;
 
+        // If we are not tearing the cloth, we want to activate the closest particle.
         if (!tearCloth) {
             var pos = getCanvasClickLoc(evt, this.el);
             var closest = this.particles[0][0];
             var closestDist = 10000;
             this.particles.forEach(function(pArr) {
                 pArr.forEach(function(p) {
+
+                    // Use the distance approximation rather than the expensive sqrt.
                     var dist = approxDist(p.x-pos.x, p.y-pos.y);
                     if (dist < closestDist) {
                         closest = p;
@@ -152,35 +170,57 @@ function Cloth (pos, x, y, canvasEl) {
                 });
             });
             this.activeParticle = closest;
-        }   
+        }
     }.bind(this);
 
     this.el.onmousemove = function(evt) {
-        if (this.activeParticle) {
+        // If the mouse is currently dragging (to avoid this being called only on mouseover).
+        if (isDragging) {
             var pos = getCanvasClickLoc(evt, this.el);
 
-            this.activeParticle.anchorx = pos.x;
-            this.activeParticle.anchory = pos.y;
+            // Anchor the active particle temporarily (until mouseup).
+            if (this.activeParticle) {
+                this.activeParticle.anchorx = pos.x;
+                this.activeParticle.anchory = pos.y;
 
-            if (!this.activeParticle.anchored) {
-                this.anchors.push(this.activeParticle);
-                this.activeParticle.anchored = true;
+                if (!this.activeParticle.anchored) {
+                    this.anchors.push(this.activeParticle);
+                    this.activeParticle.anchored = true;
+                }
+            } else if (tearCloth) {
+                // If the user wants to tear the cloth.
+                console.log(evt);
+                this.constraints.forEach(function(c) {
+                    var distA = approxDist(c.pA.x - pos.x, c.pA.y - pos.y);
+                    var distB = approxDist(c.pB.x - pos.x, c.pB.y - pos.y);
+
+                    if (distA < REST_LENGTH && distB < REST_LENGTH) {
+                        this.constraints.splice(this.constraints.indexOf(c), 1);
+                    }
+                }.bind(this));
             }
         }
     }.bind(this);
 
     this.el.onmouseup = function(evt) {
+        // If there exists an active particle which we do not want to anchor,
+        // potentially un-anchor it.
         if (this.activeParticle && !anchorCloth) {
+            this.activeParticle.anchored = false;
+
+            // Remove the active particle from the list of anchors.
             var ind = this.anchors.indexOf(this.activeParticle);
             if (ind > -1) this.anchors.splice(ind, 1);
         }   
+
         this.activeParticle = null;
 
+        // Reset flags to false (after mouseup we shouldn't be anchoring, tearing, or dragging).
+        isDragging = false;
         anchorCloth = false;
         tearCloth = false;
     }.bind(this);
 }
-
 /**
  * Sets up physics by applying gravity to each point mass.
  * Also declares which particles are initialized as anchors.
@@ -195,6 +235,7 @@ Cloth.prototype.setupPhysics = function () {
     // Anchored particles (not affected by gravity or anything else).
     this.particles[0][this.length-1].anchored = true;
     this.particles[this.width-1][this.length-1].anchored = true;
+    this.particles[(this.width-1)/2][this.length-1].anchored = true;
     this.anchors.push(this.particles[(this.width-1)/2][this.length-1]);
     this.anchors.push(this.particles[0][this.length-1]);
     this.anchors.push(this.particles[this.width-1][this.length-1]);
@@ -268,27 +309,10 @@ Cloth.prototype.draw = function (canvas) {
         }
     }
 
-    for (var i = 0; i < this.width-1; i++) {
+    for (var i = 0; i < this.constraints.length; i++) {
         canvas.beginPath();
-        canvas.moveTo(this.particles[i+1][this.length-1].x, this.particles[i+1][this.length-1].y);
-        canvas.lineTo(this.particles[i][this.length-1].x, this.particles[i][this.length-1].y);
-        canvas.stroke();
-
-        for (var j = 0; j < this.length-1; j++) {
-            canvas.beginPath();
-            canvas.moveTo(this.particles[i+1][j].x, this.particles[i+1][j].y);
-            canvas.lineTo(this.particles[i][j].x, this.particles[i][j].y);
-            
-            canvas.moveTo(this.particles[i][j+1].x, this.particles[i][j+1].y);
-            canvas.lineTo(this.particles[i][j].x, this.particles[i][j].y);
-            canvas.stroke();
-        }
-    }
-
-    for (var j = 0; j < this.length-1; j++) {
-        canvas.beginPath();
-        canvas.moveTo(this.particles[this.width-1][j+1].x, this.particles[this.width-1][j+1].y);
-        canvas.lineTo(this.particles[this.width-1][j].x, this.particles[this.width-1][j].y);
+        canvas.moveTo(this.constraints[i].pA.x, this.constraints[i].pA.y);
+        canvas.lineTo(this.constraints[i].pB.x, this.constraints[i].pB.y);
         canvas.stroke();
     }
 };
