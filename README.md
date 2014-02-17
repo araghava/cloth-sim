@@ -7,3 +7,5 @@ Tearable cloth simulation with HTML5 canvas using verlet integration.
 <li>Hit 'a' while dragging to anchor a point.</li>
 <li>Hold 't' when clicking and dragging to tear the cloth.</li>
 </ul>
+
+Demo: http://adityaraghavan.com/projects/cloth-tearing/
