@@ -189,10 +189,13 @@ Cloth.prototype.setupEvents = function () {
             } else if (tearCloth) {
                 // If the user wants to tear the cloth.
                 this.constraints.forEach(function(c) {
-                    var distA = approxDist(c.pA.x - pos.x, c.pA.y - pos.y);
-                    var distB = approxDist(c.pB.x - pos.x, c.pB.y - pos.y);
+                    var dCx = (c.pA.x + c.pB.x)/2 - pos.x;
+                    var dCy = (c.pA.y + c.pB.y)/2 - pos.y;
 
-                    if (distA < REST_LENGTH && distB < REST_LENGTH) {
+                    if (dCx < 0) dCx = -dCx;
+                    if (dCy < 0) dCy = -dCy;
+
+                    if (dCx < REST_LENGTH && dCy < REST_LENGTH) {
                         this.constraints.splice(this.constraints.indexOf(c), 1);
                     }
                 }.bind(this));
