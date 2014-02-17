@@ -2,17 +2,17 @@
 var GRAVITY = -2;
 
 // Time step to use for verlet integration.
-var DELTA_TIME = 0.5;
+var DELTA_TIME = 0.3;
 
 // How many times to solve the constraints before rendering.
 var CONSTRAINT_ITERATIONS = 6;
 
 // Length between two points such that no attraction or repulsive 'forces' are applied.
-var REST_LENGTH = 18;
+var REST_LENGTH = 15;
 
 // Location to place the cloth in the canvas.
-var offset_x = 80;
-var offset_y = 140;
+var offset_x = 45;
+var offset_y = 90;
 
 // Whether to tear the cloth while clicking and dragging.
 var tearCloth = false;
@@ -37,9 +37,8 @@ window.onkeyup = function(evt) {
  */
 function World (canvasEl) {
     this.canvas = canvasEl.getContext('2d');
-
-    // Set line constraint width to 0.2.
-    this.canvas.lineWidth = 0.2;
+    this.canvas.lineWidth = 0.5;
+    this.canvas.strokeStyle = "#333";
 
     this.width = canvasEl.width;
     this.height = canvasEl.height;
@@ -48,7 +47,7 @@ function World (canvasEl) {
     this.canvas.translate(0, this.canvas.canvas.height);
     this.canvas.scale(1, -1);
 
-    this.cloth = new Cloth([offset_x, offset_y], 25, 16, canvasEl);
+    this.cloth = new Cloth([offset_x, offset_y], 35, 20, canvasEl);
 }
 
 /**
@@ -96,7 +95,7 @@ function Cloth (pos, x, y, canvasEl) {
         for (var j = 0; j < y; j++) {
             var par = new Particle([
                 pos[0] + i*REST_LENGTH,
-                pos[1] + j*REST_LENGTH], 2);
+                pos[1] + j*REST_LENGTH], 0.5);
             arr.push(par);
         }
         this.particles.push(arr);
@@ -189,7 +188,6 @@ Cloth.prototype.setupEvents = function () {
                 }
             } else if (tearCloth) {
                 // If the user wants to tear the cloth.
-                console.log(evt);
                 this.constraints.forEach(function(c) {
                     var distA = approxDist(c.pA.x - pos.x, c.pA.y - pos.y);
                     var distB = approxDist(c.pB.x - pos.x, c.pB.y - pos.y);
@@ -299,6 +297,7 @@ Cloth.prototype.solveConstraints = function () {
  * Draw the cloth (point masses and constraints).
  */
 Cloth.prototype.draw = function (canvas) {
+    /* Don't draw the dots.
     for (var i = 0; i < this.width; i++) {
         for (var j = 0; j < this.length; j++) {
             var p = this.particles[i][j];
@@ -308,7 +307,7 @@ Cloth.prototype.draw = function (canvas) {
             canvas.stroke();
         }
     }
-
+    */
     for (var i = 0; i < this.constraints.length; i++) {
         canvas.beginPath();
         canvas.moveTo(this.constraints[i].pA.x, this.constraints[i].pA.y);
