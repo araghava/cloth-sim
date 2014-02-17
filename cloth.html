@@ -1,0 +1,23 @@
+<html>
+	<head>
+		<script src="cloth.js"></script>
+		<script>
+			window.onload = function () {
+				var canvas = document.getElementById('cn');
+				var world = new World(canvas);
+				world.start();
+			};
+		</script>
+		<style>
+			#cn {
+				margin-top: 50px;
+				border: 1px solid #ddd;
+			}
+		</style>
+	</head>
+	<body>
+		<center>
+			<canvas id="cn" width="600" height="450"></canvas>
+		</center>
+	</body>
+</html>
